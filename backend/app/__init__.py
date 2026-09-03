@@ -26,7 +26,10 @@ def create_app(config_override=None):
     JWTManager(app)
 
     with app.app_context():
-        db.create_all() # Ensure tables are created
+        try:
+            db.create_all() # Ensure tables are created
+        except Exception as e:
+            app.logger.warning(f"Database initialization check warning: {e}")
         # Import routes here to avoid circular imports
         from .routes.auth_routes import auth_bp
         from .routes.user_routes import user_bp
