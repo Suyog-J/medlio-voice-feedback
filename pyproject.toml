@@ -1,0 +1,12 @@
+[project]
+name = "medlio"
+version = "0.1.0"
+description = "Voice Enabled Customer Feedback Portal"
+dependencies = [
+    "flask",
+    "flask-sqlalchemy",
+    "flask-jwt-extended",
+    "psycopg2-binary",
+    "requests",
+    "pytest",
+]
