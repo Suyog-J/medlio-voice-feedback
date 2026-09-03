@@ -109,7 +109,21 @@ erDiagram
 
 ---
 
-## ⚙️ Getting Started
+## 🎙️ Recording Limitations & Audio Constraints
+
+- **Maximum Audio File Size**: Hard ceiling of **15 MB** enforced at API level to prevent storage bloat and server DoS.
+- **Supported Audio MIME Types**:
+  - `audio/webm` (Standard for Chrome, Firefox, Edge)
+  - `audio/mp4` / `audio/aac` (Standard for Safari, iOS Safari)
+  - `audio/wav` / `audio/x-wav`
+  - `audio/mp3` / `audio/mpeg`
+  - `audio/ogg`
+- **Browser Constraints**: MediaRecorder requires HTTPS or `localhost` context to access user microphone permissions.
+- **STT Processing Bounds**: Groq Whisper Large V3 API accepts audio files up to 25 MB. Inputs exceeding 15 MB are rejected upfront by Flask backend.
+
+---
+
+## ⚙️ Getting Started & Setup
 
 ### Prerequisites
 - **Node.js** (v18+)
@@ -151,6 +165,22 @@ npx eslint src/
 # Start React Frontend (Runs on http://localhost:3000)
 npm start
 ```
+
+---
+
+## 🔧 Troubleshooting & Edge Cases
+
+### 1. Database Connection Failure (`Network is unreachable` on Render)
+- **Cause**: Render's free tier web services operate on IPv4-only networks, whereas direct Supabase DB hosts (`db.<ref>.supabase.co:5432`) resolve to IPv6 addresses.
+- **Fix**: Use the Supabase IPv4 Pooler URL on port `6543` (`postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`).
+
+### 2. Audio Playback Authorization / CORS Errors
+- **Cause**: Browser blocking cross-origin audio playback from S3/R2 presigned URLs.
+- **Fix**: Ensure Cloudflare R2 bucket CORS policy allows `GET` requests from your frontend origin URL.
+
+### 3. Invalid File Type or Large File Error
+- **Cause**: Uploading non-audio formats or files > 15 MB.
+- **Fix**: API returns `400 Bad Request` with message: `"Invalid file type. Only audio files are allowed."` or `"File size exceeds maximum allowed limit of 15MB."`.
 
 ---
 
