@@ -18,21 +18,21 @@ class STTService:
         """
         api_key = self.api_key or os.environ.get("GROQ_API_KEY")
         
-        # Resolve path if URL is passed
-        local_path = storage_service.get_file_path(audio_file_path) if (audio_file_path.startswith("http://") or audio_file_path.startswith("https://")) else audio_file_path
+        # Fetch file bytes from local disk or Cloudflare R2 object storage
+        audio_bytes = storage_service.get_file_bytes(audio_file_path)
 
-        if api_key and not api_key.startswith("your_") and not api_key.startswith("placeholder") and os.path.exists(local_path):
+        if api_key and not api_key.startswith("your_") and not api_key.startswith("placeholder") and audio_bytes:
             try:
                 headers = {"Authorization": f"Bearer {api_key}"}
-                with open(local_path, "rb") as f:
-                    files = {
-                        "file": f,
-                        "model": (None, "whisper-large-v3"),
-                    }
-                    response = requests.post(self.url, headers=headers, files=files)
-                    response.raise_for_status()
-                    data = response.json()
-                    return data.get("text", ""), data.get("language", "en")
+                filename = os.path.basename(audio_file_path.split("?")[0]) or "audio.wav"
+                files = {
+                    "file": (filename, audio_bytes, "audio/wav"),
+                    "model": (None, "whisper-large-v3"),
+                }
+                response = requests.post(self.url, headers=headers, files=files, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("text", ""), data.get("language", "en")
             except Exception as e:
                 print(f"Groq STT transcription error: {str(e)}")
 

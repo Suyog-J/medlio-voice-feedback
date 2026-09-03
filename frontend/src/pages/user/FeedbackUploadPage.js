@@ -5,10 +5,20 @@ import StopIcon from '@mui/icons-material/Stop';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import apiClient from '../../services/api';
 
+const getSupportedMimeType = () => {
+    if (typeof MediaRecorder === 'undefined') return { mimeType: '', ext: 'webm', type: 'audio/webm' };
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return { mimeType: 'audio/webm;codecs=opus', ext: 'webm', type: 'audio/webm' };
+    if (MediaRecorder.isTypeSupported('audio/webm')) return { mimeType: 'audio/webm', ext: 'webm', type: 'audio/webm' };
+    if (MediaRecorder.isTypeSupported('audio/mp4')) return { mimeType: 'audio/mp4', ext: 'mp4', type: 'audio/mp4' };
+    if (MediaRecorder.isTypeSupported('audio/wav')) return { mimeType: 'audio/wav', ext: 'wav', type: 'audio/wav' };
+    return { mimeType: '', ext: 'webm', type: 'audio/webm' };
+};
+
 const FeedbackUploadPage = () => {
     const [recording, setRecording] = useState(false);
     const [audioBlob, setAudioBlob] = useState(null);
     const [audioUrl, setAudioUrl] = useState(null);
+    const [recordedFormat, setRecordedFormat] = useState({ ext: 'webm', type: 'audio/webm' });
     const [file, setFile] = useState(null);
     const [status, setStatus] = useState('');
     const [error, setError] = useState('');
@@ -25,7 +35,11 @@ const FeedbackUploadPage = () => {
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream);
+            const format = getSupportedMimeType();
+            setRecordedFormat(format);
+
+            const options = format.mimeType ? { mimeType: format.mimeType } : {};
+            mediaRecorderRef.current = new MediaRecorder(stream, options);
 
             mediaRecorderRef.current.ondataavailable = (event) => {
                 if (event.data.size > 0) {
@@ -34,7 +48,7 @@ const FeedbackUploadPage = () => {
             };
 
             mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+                const blob = new Blob(audioChunksRef.current, { type: format.type });
                 setAudioBlob(blob);
                 setAudioUrl(URL.createObjectURL(blob));
                 // Stop all track streams
@@ -66,7 +80,7 @@ const FeedbackUploadPage = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const payloadFile = file || (audioBlob ? new File([audioBlob], 'feedback_recording.wav', { type: 'audio/wav' }) : null);
+        const payloadFile = file || (audioBlob ? new File([audioBlob], `feedback_recording.${recordedFormat.ext}`, { type: recordedFormat.type }) : null);
 
         if (!payloadFile) {
             setError('Please record audio or select a file to upload.');

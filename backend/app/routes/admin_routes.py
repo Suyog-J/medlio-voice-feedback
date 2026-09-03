@@ -1,6 +1,7 @@
 import uuid
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy.orm import joinedload
 from ..models import db, Feedback, User
 from ..auth import admin_required
 from ..services.storage_service import storage_service
@@ -11,13 +12,13 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 @jwt_required()
 @admin_required()
 def list_all_feedback():
-    feedbacks = Feedback.query.all()
+    # Eager load user to eliminate N+1 queries
+    feedbacks = Feedback.query.options(joinedload(Feedback.user)).all()
     results = []
     for f in feedbacks:
-        user = db.session.get(User, f.user_id) if f.user_id else None
         results.append({
             "id": str(f.id),
-            "user_name": user.name if user else "Unknown",
+            "user_name": f.user.name if f.user else "Unknown",
             "status": f.status,
             "date": f.created_at.isoformat()
         })
@@ -32,11 +33,14 @@ def get_feedback_detail(id):
     if not feedback:
         return jsonify(msg='Feedback not found'), 404
 
+    # Generate fresh presigned URL dynamically for audio playback
+    playback_url = storage_service.get_presigned_url(feedback.audio_url)
+
     return jsonify({
         "feedback": {
             "id": str(feedback.id),
             "user_id": str(feedback.user_id),
-            "audio_url": feedback.audio_url,
+            "audio_url": playback_url,
             "status": feedback.status,
             "date": feedback.created_at.isoformat()
         },

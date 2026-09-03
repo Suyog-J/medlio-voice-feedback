@@ -1,3 +1,4 @@
+import os
 import uuid
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -18,13 +19,17 @@ def process_voice_feedback(app, feedback_id):
             feedback = db.session.get(Feedback, feedback_uuid)
             if not feedback: return
 
-            # 1. STT
+            f_id = feedback.id
+
+            # Set status to PROCESSING immediately before calling STT service
+            feedback.status = 'PROCESSING'
+            db.session.commit()
+
+            # 1. Speech-to-Text
             text, lang = stt_service.transcribe(feedback.audio_url)
 
-            f_id = feedback.id
             transcription = Transcription(feedback_id=f_id, text=text, language=lang)
             db.session.add(transcription)
-            feedback.status = 'PROCESSING'
             db.session.commit()
 
             # 2. Sentiment Analysis
@@ -39,17 +44,20 @@ def process_voice_feedback(app, feedback_id):
                 urgency=analysis['urgency']
             )
             db.session.add(sentiment)
+
             feedback = db.session.get(Feedback, f_id)
             if feedback:
                 feedback.status = 'COMPLETED'
             db.session.commit()
 
         except Exception as e:
-            print(f"Error processing feedback {feedback_id}: {str(e)}")
+            err_msg = str(e)
+            print(f"Error processing feedback {feedback_id}: {err_msg}")
             feedback_uuid = uuid.UUID(feedback_id) if isinstance(feedback_id, str) else feedback_id
             feedback = db.session.get(Feedback, feedback_uuid)
             if feedback:
                 feedback.status = 'FAILED'
+                feedback.error_message = err_msg
                 db.session.commit()
 
 @user_bp.route('/feedback', methods=['POST'])
@@ -61,6 +69,26 @@ def upload_feedback():
         return jsonify(msg='No file uploaded'), 400
 
     file = request.files['file']
+    if not file or file.filename == '':
+        return jsonify(msg='No selected file'), 400
+
+    # Validate audio MIME type & extension
+    allowed_mimetypes = {'audio/wav', 'audio/webm', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/mp4', 'audio/x-wav', 'audio/m4a', 'application/octet-stream'}
+    allowed_extensions = {'.wav', '.webm', '.mp3', '.ogg', '.mp4', '.m4a', '.aac'}
+    ext = os.path.splitext(file.filename)[1].lower() if file.filename else ''
+    is_audio = (file.mimetype and (file.mimetype.startswith('audio/') or file.mimetype in allowed_mimetypes)) or (ext in allowed_extensions)
+
+    if not is_audio:
+        return jsonify(msg='Invalid file type. Only audio files are allowed.'), 400
+
+    # Validate file size (15MB limit)
+    MAX_FILE_SIZE = 15 * 1024 * 1024
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    if file_size > MAX_FILE_SIZE:
+        return jsonify(msg='File size exceeds maximum allowed limit of 15MB.'), 400
+
     audio_url = storage_service.upload_file(file, file.filename)
 
     new_feedback = Feedback(
@@ -109,6 +137,7 @@ def get_feedback_detail(id):
         "feedback": {
             "id": str(feedback.id),
             "status": feedback.status,
+            "error_message": feedback.error_message if feedback.status == 'FAILED' else None,
             "date": feedback.created_at.isoformat()
         },
         "transcription": feedback.transcription.text if feedback.transcription else None,

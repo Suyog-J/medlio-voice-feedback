@@ -38,13 +38,13 @@ class AIService:
                 result_json = response.json()
                 raw_text = result_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                 
-                # Clean codeblock wrappers if present
-                if raw_text.startswith("```"):
-                    raw_text = raw_text.split("\n", 1)[1]
-                    if raw_text.endswith("```"):
-                        raw_text = raw_text.rsplit("```", 1)[0]
+                # Robustly clean codeblock wrappers if present
+                clean_text = raw_text.strip()
+                if clean_text.startswith("```"):
+                    clean_text = clean_text.removeprefix("```json").removeprefix("```")
+                    clean_text = clean_text.removesuffix("```").strip()
                 
-                parsed = json.loads(raw_text)
+                parsed = json.loads(clean_text)
                 key_topics = parsed.get("key_topics", [])
                 if isinstance(key_topics, str):
                     key_topics = [key_topics]

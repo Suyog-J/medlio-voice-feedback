@@ -20,7 +20,7 @@ def register():
         name=data.get('name', 'Unknown'),
         email=data['email'],
         password_hash=hashed_password,
-        role=data.get('role', 'USER')
+        role='USER'
     )
 
     db.session.add(new_user)

@@ -23,6 +23,7 @@ class Feedback(db.Model):
     audio_url = db.Column(db.Text, nullable=False)
     filename = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='UPLOADED') # 'UPLOADED', 'PROCESSING', 'COMPLETED', 'FAILED'
+    error_message = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     transcription = db.relationship('Transcription', backref='feedback', uselist=False, cascade='all, delete-orphan')
