@@ -54,8 +54,9 @@ server_err.txt
 server_log.txt
 temp.md
 
-# Documentation (Excluded from repo)
+# Skills & Documentation (Excluded from repo)
 docs/
+skills/
 
 # OS & IDE Files
 .DS_Store

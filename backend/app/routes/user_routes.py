@@ -21,7 +21,8 @@ def process_voice_feedback(app, feedback_id):
             # 1. STT
             text, lang = stt_service.transcribe(feedback.audio_url)
 
-            transcription = Transcription(feedback_id=feedback.id, text=text, language=lang)
+            f_id = feedback.id
+            transcription = Transcription(feedback_id=f_id, text=text, language=lang)
             db.session.add(transcription)
             feedback.status = 'PROCESSING'
             db.session.commit()
@@ -30,7 +31,7 @@ def process_voice_feedback(app, feedback_id):
             analysis = ai_service.analyze_sentiment(text)
 
             sentiment = Sentiment(
-                feedback_id=feedback.id,
+                feedback_id=f_id,
                 sentiment=analysis['sentiment'],
                 confidence=analysis['confidence'],
                 summary=analysis['summary'],
@@ -38,7 +39,9 @@ def process_voice_feedback(app, feedback_id):
                 urgency=analysis['urgency']
             )
             db.session.add(sentiment)
-            feedback.status = 'COMPLETED'
+            feedback = db.session.get(Feedback, f_id)
+            if feedback:
+                feedback.status = 'COMPLETED'
             db.session.commit()
 
         except Exception as e:
@@ -70,9 +73,12 @@ def upload_feedback():
     db.session.commit()
 
     # Start background processing
-    app = current_app._get_current_object()
-    thread = Thread(target=process_voice_feedback, args=(app, str(new_feedback.id)))
-    thread.start()
+    app_obj = current_app._get_current_object()
+    if current_app.config.get('TESTING'):
+        process_voice_feedback(app_obj, str(new_feedback.id))
+    else:
+        thread = Thread(target=process_voice_feedback, args=(app_obj, str(new_feedback.id)))
+        thread.start()
 
     return jsonify(id=str(new_feedback.id), status=new_feedback.status), 201
 

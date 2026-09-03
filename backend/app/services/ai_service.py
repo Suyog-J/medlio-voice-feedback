@@ -45,11 +45,15 @@ class AIService:
                         raw_text = raw_text.rsplit("```", 1)[0]
                 
                 parsed = json.loads(raw_text)
+                key_topics = parsed.get("key_topics", [])
+                if isinstance(key_topics, str):
+                    key_topics = [key_topics]
+
                 return {
                     "sentiment": parsed.get("sentiment", "NEUTRAL"),
                     "confidence": float(parsed.get("confidence", 0.9)),
                     "summary": parsed.get("summary", "Transcript analyzed."),
-                    "key_topics": parsed.get("key_topics", []),
+                    "key_topics": key_topics,
                     "urgency": parsed.get("urgency", "LOW")
                 }
             except Exception as e:

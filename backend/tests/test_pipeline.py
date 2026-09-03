@@ -58,7 +58,8 @@ def test_pipeline_processing_success(app, admin_user):
             from app.routes.user_routes import process_voice_feedback
             process_voice_feedback(app, str(f.id))
 
-            db.session.refresh(f)
+            db.session.expire_all()
+            f = db.session.get(Feedback, f.id)
             assert f.status == 'COMPLETED'
             assert f.transcription.text == "Hello world"
             assert f.sentiment.sentiment == "POSITIVE"

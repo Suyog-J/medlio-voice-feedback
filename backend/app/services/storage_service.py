@@ -6,7 +6,7 @@ from typing import Optional
 class StorageService:
     """
     Service for handling audio file uploads and retrievals.
-    Supports Cloud Object Storage (Supabase Storage, AWS S3) with local storage fallback.
+    Supports Cloud Object Storage (Cloudflare R2, Supabase, AWS S3) with local storage fallback.
     """
     def __init__(self, upload_dir: str = None):
         if upload_dir is None:
@@ -18,8 +18,8 @@ class StorageService:
 
     def upload_file(self, file_obj, filename: str) -> str:
         """
-        Uploads file to Cloud Object Storage (Supabase/S3) or Local Storage.
-        Returns the public URL of the uploaded audio file.
+        Uploads file to Cloud Object Storage (Cloudflare R2 / Supabase / AWS S3) or Local Storage.
+        Returns the accessible URL of the uploaded audio file.
         """
         ext = os.path.splitext(filename)[1] if filename else ".wav"
         if not ext:
@@ -42,14 +42,52 @@ class StorageService:
         with open(filepath, 'wb') as f:
             f.write(content)
 
-        # Option 1: Supabase Cloud Object Storage
+        # Option 1: Cloudflare R2 Object Storage
+        r2_endpoint = os.environ.get("R2_ENDPOINT")
+        r2_access_key = os.environ.get("R2_ACCESS_KEY_ID")
+        r2_secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
+        r2_bucket = os.environ.get("R2_BUCKET_NAME", "medlio-voice-feedback")
+
+        if r2_endpoint and r2_access_key and r2_secret_key:
+            try:
+                import boto3
+                s3_client = boto3.client(
+                    's3',
+                    endpoint_url=r2_endpoint,
+                    aws_access_key_id=r2_access_key,
+                    aws_secret_access_key=r2_secret_key,
+                    region_name='auto'
+                )
+                s3_client.put_object(
+                    Bucket=r2_bucket,
+                    Key=unique_filename,
+                    Body=content,
+                    ContentType='audio/wav'
+                )
+                
+                r2_public_base = os.environ.get("R2_PUBLIC_URL")
+                if r2_public_base:
+                    r2_url = f"{r2_public_base.rstrip('/')}/{unique_filename}"
+                else:
+                    # Generate a presigned GET URL for audio playback
+                    r2_url = s3_client.generate_presigned_url(
+                        'get_object',
+                        Params={'Bucket': r2_bucket, 'Key': unique_filename},
+                        ExpiresIn=604800  # 7 days
+                    )
+                print(f"Uploaded to Cloudflare R2 Object Storage: {r2_url}")
+                return r2_url
+            except Exception as e:
+                print(f"Cloudflare R2 upload error: {str(e)}")
+
+        # Option 2: Supabase Storage
         supabase_url = os.environ.get("SUPABASE_URL")
         supabase_key = os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_ANON_KEY")
-        bucket = os.environ.get("SUPABASE_STORAGE_BUCKET", "medlio-feedback")
+        supabase_bucket = os.environ.get("SUPABASE_STORAGE_BUCKET", "medlio-feedback")
 
         if supabase_url and supabase_key and not supabase_url.startswith("your_"):
             try:
-                upload_endpoint = f"{supabase_url.rstrip('/')}/storage/v1/object/{bucket}/{unique_filename}"
+                upload_endpoint = f"{supabase_url.rstrip('/')}/storage/v1/object/{supabase_bucket}/{unique_filename}"
                 headers = {
                     "Authorization": f"Bearer {supabase_key}",
                     "apiKey": supabase_key,
@@ -58,33 +96,11 @@ class StorageService:
                 }
                 res = requests.post(upload_endpoint, headers=headers, data=content, timeout=15)
                 if res.status_code in (200, 201):
-                    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{bucket}/{unique_filename}"
+                    public_url = f"{supabase_url.rstrip('/')}/storage/v1/object/public/{supabase_bucket}/{unique_filename}"
                     print(f"Uploaded to Supabase Cloud Storage: {public_url}")
                     return public_url
-                else:
-                    print(f"Supabase upload warning ({res.status_code}): {res.text}")
             except Exception as e:
                 print(f"Supabase storage upload error: {str(e)}")
-
-        # Option 2: AWS S3 Cloud Object Storage
-        s3_bucket = os.environ.get("AWS_S3_BUCKET")
-        aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-        aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-        if s3_bucket and aws_access_key and aws_secret_key and not s3_bucket.startswith("your_"):
-            try:
-                import boto3
-                s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    region_name=os.environ.get("AWS_REGION", "us-east-1")
-                )
-                s3_client.put_object(Bucket=s3_bucket, Key=unique_filename, Body=content, ContentType='audio/wav')
-                s3_url = f"https://{s3_bucket}.s3.amazonaws.com/{unique_filename}"
-                print(f"Uploaded to AWS S3 Object Storage: {s3_url}")
-                return s3_url
-            except Exception as e:
-                print(f"AWS S3 upload error: {str(e)}")
 
         # Fallback: Local Server Storage URL
         base_url = os.environ.get("BASE_URL", "http://localhost:5000")
@@ -94,7 +110,8 @@ class StorageService:
         """
         Returns absolute local file path from URL or filename.
         """
-        filename = os.path.basename(url_or_filename)
+        clean_url = url_or_filename.split("?")[0]
+        filename = os.path.basename(clean_url)
         return os.path.join(self.upload_dir, filename)
 
     def delete_file(self, url: str) -> bool:
@@ -102,11 +119,32 @@ class StorageService:
         Deletes a file from storage given its URL.
         """
         try:
-            filepath = self.get_file_path(url)
+            clean_url = url.split("?")[0]
+            filename = os.path.basename(clean_url)
+            filepath = os.path.join(self.upload_dir, filename)
             if os.path.exists(filepath):
                 os.remove(filepath)
+
+            # Delete from Cloudflare R2 if configured
+            r2_endpoint = os.environ.get("R2_ENDPOINT")
+            r2_access_key = os.environ.get("R2_ACCESS_KEY_ID")
+            r2_secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
+            r2_bucket = os.environ.get("R2_BUCKET_NAME", "medlio-voice-feedback")
+
+            if r2_endpoint and r2_access_key and r2_secret_key:
+                import boto3
+                s3_client = boto3.client(
+                    's3',
+                    endpoint_url=r2_endpoint,
+                    aws_access_key_id=r2_access_key,
+                    aws_secret_access_key=r2_secret_key,
+                    region_name='auto'
+                )
+                s3_client.delete_object(Bucket=r2_bucket, Key=filename)
+
             return True
-        except Exception:
+        except Exception as e:
+            print(f"Delete file error: {str(e)}")
             return False
 
 storage_service = StorageService()
