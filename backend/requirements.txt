@@ -1,7 +1,10 @@
 flask
 flask-sqlalchemy
 flask-jwt-extended
+flask-cors
 psycopg2-binary
 requests
-pytest
+boto3
+gunicorn
 python-dotenv
+pytest
